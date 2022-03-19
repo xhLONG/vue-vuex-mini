@@ -1,17 +1,19 @@
 <template>
   <div id="app">
-    <img alt="Vue logo" src="./assets/logo.png">
-    <HelloWorld msg="Welcome to Your Vue.js App"/>
+      <p>我的年龄：{{$store.state.age}}</p>
+      <!-- <p>她的年龄：{{$store.getters.otherAge}}</p> -->
+      <button @click="$store.commit('changeAge', 1)">同步修改</button>
+      <button @click="$store.dispatch('asyncChangeAge', 2)">异步修改</button>
   </div>
 </template>
 
 <script>
-import HelloWorld from './components/HelloWorld.vue'
-
 export default {
   name: 'App',
+  created(){
+      console.log(this.$store)
+  },
   components: {
-    HelloWorld
   }
 }
 </script>
