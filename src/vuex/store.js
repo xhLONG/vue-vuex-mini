@@ -3,7 +3,16 @@ import {forEach} from './util'
 import ModuleCollection from './module/module-collection'
 let Vue;
 
+function getState(store, path){
+    return path.reduce((newState, current) => {
+        return newState[current];
+    }, store.state)
+}
+
 function installModule(store, rootState, path, module){
+    // 注册事件时 需要注册到对应的命名空间中 path就是所有空间 根据path算出空间来
+    let namespace = store._modules.getNamespace(path);
+
     if(path.length > 0){    // 如果是子模块，需要将子模块的状态定义到根模块上
         let parent = path.slice(0, -1).reduce((memo, current) => {
             return memo[current];
@@ -14,23 +23,26 @@ function installModule(store, rootState, path, module){
     module.forEachMutation((mutation, type) => {
         // {changeAge: [fn, fn, fn]}
 
-        store._mutations[type] ||= [];
-        store._mutations[type].push((payload) => {
-            mutation.call(store, module.state, payload)
+        store._mutations[namespace + type] ||= [];
+        store._mutations[namespace + type].push((payload) => {
+            // 做持久化数据的时候 内部可能会替换状态 这里如果一直用module.state 可能就是老的状态
+            // mutation.call(store, module.state, payload)     // 更改状态
+            mutation.call(store, getState(store, path), payload)
+            store._subscribers.forEach(sub => sub({mutation, type}, store.state))   // 调用订阅的事件，重新执行
         })
     });
 
     module.forEachAction((action, type) => {
-        store._actions[type] ||= [];
-        store._actions[type].push((payload) => {
-            action.call(store, store, payload)
+        store._actions[namespace + type] ||= [];
+        store._actions[namespace + type].push((payload) => {
+            action.call(store, getState(store, path), payload)
         })
     });
 
     module.forEachGetter((getter, key) => {
         // 如果getters重名会覆盖，所有模块的getter都会定义到根模块上
-        store._wrappedGetters[key] = function(params){
-            return getter(module.state);
+        store._wrappedGetters[namespace + key] = function(params){
+            return getter(getState(store, path));
         }
     });
 
@@ -41,6 +53,7 @@ function installModule(store, rootState, path, module){
 
 function resetStoreVm(store, state){
     const wrappedGetters = store._wrappedGetters;
+    let oldVm = store._vm;
     let computed = {};
     store.getters = {};
     forEach(wrappedGetters, (fn, key) => {
@@ -59,6 +72,11 @@ function resetStoreVm(store, state){
         },
         computed,
     })
+    if(oldVm){
+        Vue.nextTick(() => {
+            oldVm.$destroy();
+        })
+    }
 }
 
 class Store{
@@ -74,10 +92,14 @@ class Store{
         this._mutations = {};       // 存放所有模块中的mutations
         this._actions = {};         // 存放所有模块中的actions
         this._wrappedGetters = {};  // 存放所有模块中的getters
+        this._subscribers = [];
         installModule(this, state, [], this._modules.root);
         
         // 将状态放到vue实例上
         resetStoreVm(this, state);
+
+        // 插件的实现
+        options.plugins.forEach(plugin => plugin(this))
 
 
         /**
@@ -133,6 +155,26 @@ class Store{
     dispatch = (type, payload) => {
         // this._actions[type](payload);
         this._actions[type].forEach(fn => fn(payload));
+    }
+
+    // 动态注册模块
+    registerModule(path, rawModule){
+        if(typeof path == "string") path = [path];
+        // 模块注册
+        this._modules.register(path, rawModule);
+
+        // 安装模块
+        installModule(this, this.state, path, rawModule.rawModule);
+        // 重新定义getters
+        resetStoreVm(this, this.state);
+    }
+
+    subscribe(fn){
+        this._subscribers.push(fn);
+    }
+
+    replaceState(newState){
+        this._vm._data.$$state = newState;
     }
 }
 

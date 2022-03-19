@@ -9,6 +9,7 @@ export default class ModuleCollection{
 
     register(path, rootModule){
         let newModule = new Module(rootModule);
+        rootModule.rawModule = newModule;       // 把当前要注册的模块上 做一个映射
 
         if(path.length == 0){
             this.root = newModule;
@@ -29,7 +30,15 @@ export default class ModuleCollection{
         }
     }
 
-    
+    // 获取命名空间
+    getNamespace(path){
+        let root = this.root;
+        return path.reduce((namespaced, key) => {
+            root = root.getChild(key);
+            return namespaced  + (root.namespaced ? key + "/" : "");
+        }, "")
+
+    }
 }
 
 // 格式化成树形结构
